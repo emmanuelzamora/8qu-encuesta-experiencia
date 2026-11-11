@@ -2,6 +2,7 @@ import os, re, hmac, hashlib, secrets
 from datetime import datetime, timezone, timedelta
 from functools import wraps
 from flask import Flask, render_template, request, jsonify, Response
+from itsdangerous import URLSafeTimedSerializer, BadSignature, SignatureExpired
 import psycopg
 from psycopg.rows import dict_row
 
@@ -27,10 +28,30 @@ def privacy(): return render_template('privacidad.html')
 @app.get('/health')
 def health(): return {'status':'ok'}
 
+def captcha_serializer():
+    secret=os.environ.get('PHONE_HASH_SECRET','')
+    return URLSafeTimedSerializer(secret, salt='8qu-slider-v1') if len(secret)>=32 else None
+
+@app.get('/api/challenge')
+def challenge():
+    signer=captcha_serializer()
+    if signer is None: return jsonify(error='Configuración pendiente.'),503
+    target=secrets.randbelow(21)+72
+    return jsonify(token=signer.dumps({'target':target}),target=target)
+
 @app.post('/api/feedback')
 def feedback():
     d=request.get_json(silent=True) or {}
     if d.get('website'): return jsonify(ok=True)
+    signer=captcha_serializer()
+    if signer is None: return jsonify(error='Configuración del servidor pendiente.'),503
+    try:
+        challenge_data=signer.loads(str(d.get('captcha_token','')),max_age=600)
+        position=d.get('captcha_position')
+        if type(position) is not int or abs(position-challenge_data['target'])>3:
+            return jsonify(error='Desliza la taza hasta la marca para verificar tu participación.'),400
+    except (BadSignature,SignatureExpired,KeyError,TypeError,ValueError):
+        return jsonify(error='La verificación expiró. Actualiza la página e inténtalo nuevamente.'),400
     phone=re.sub(r'\D','',str(d.get('phone','')))
     if phone.startswith('52') and len(phone)==12: phone=phone[2:]
     if not re.fullmatch(r'\d{10}',phone): return jsonify(error='Ingresa un celular de 10 dígitos.'),400
