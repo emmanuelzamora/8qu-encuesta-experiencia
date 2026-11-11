@@ -1,0 +1,16 @@
+services:
+  - type: web
+    name: 8qu-encuesta-experiencia
+    runtime: python
+    plan: free
+    buildCommand: pip install -r requirements.txt
+    startCommand: python init_db.py && gunicorn app:app --bind 0.0.0.0:$PORT --workers 2
+    envVars:
+      - key: DATABASE_URL
+        sync: false
+      - key: PHONE_HASH_SECRET
+        generateValue: true
+      - key: ADMIN_USER
+        sync: false
+      - key: ADMIN_PASSWORD
+        sync: false
